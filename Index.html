@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DUIT! — hyper-local tasks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="src/shared.jsx"></script>
+<script type="text/babel" src="src/home.jsx"></script>
+<script type="text/babel" src="src/create.jsx"></script>
+<script type="text/babel" src="src/flow.jsx"></script>
+<script type="text/babel" src="src/pages.jsx"></script>
+<script type="text/babel" src="src/ai.jsx"></script>
+
+<script type="text/babel">
+const TWEAKS_DEFAULT = /*EDITMODE-BEGIN*/{
+  "accentColor": "#D4FF3F",
+  "pov": "doer",
+  "density": "balanced",
+  "showTwoPhones": true,
+  "darkChrome": false
+}/*EDITMODE-END*/;
+
+function DuitApp() {
+  const [tweaks, setTweaks] = React.useState(TWEAKS_DEFAULT);
+  const [editMode, setEditMode] = React.useState(false);
+  const [screen, setScreen] = React.useState(() => localStorage.getItem('duit-screen') || 'home');
+  const [tab, setTab] = React.useState(() => localStorage.getItem('duit-tab') || 'home');
+  const [openTaskId, setOpenTaskId] = React.useState('t1');
+  const [trackerStage, setTrackerStage] = React.useState('accepted');
+
+  // AI state
+  const [agentLogs, setAgentLogs] = React.useState([]);
+  const [posterBusy, setPosterBusy] = React.useState(false);
+  const [doerBusy, setDoerBusy] = React.useState(false);
+  const [doerAutopilot, setDoerAutopilot] = React.useState(false);
+  const [ariaResult, setAriaResult] = React.useState(null);
+  const [ariaPrompt, setAriaPrompt] = React.useState('');
+  const [apiStatus, setApiStatus] = React.useState('live');
+
+  const addLog = (agent, text) => {
+    const time = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setAgentLogs(prev => [{ agent, text, time }, ...prev].slice(0, 50));
+  };
+
+  // ARIA: draft a task from a prompt using Claude
+  const runAria = async (prompt) => {
+    if (!prompt || prompt.trim().length < 3) return;
+    setPosterBusy(true);
+    setAriaResult(null);
+    setAriaPrompt(prompt);
+    addLog('aria', `received request: "${prompt.slice(0, 60)}${prompt.length > 60 ? '…' : ''}"`);
+    addLog('aria', 'classifying type · estimating distance · drafting copy');
+
+    const sys = `You are ARIA, an AI agent for DUIT, a hyper-local task marketplace in Jakarta, Indonesia. Users speak mostly Bahasa Indonesia but some English. Currency is IDR. Given a short user prompt, output ONE task as strict JSON:
+{"type":"errand|delivery|help|other","title":"<~50 char title>","description":"<~200 char clear detail>","price":<integer IDR 15000-200000>,"distance":<0.2-5 km>,"location":"<neighborhood>","time":"<ASAP | Today HH:MM | Tomorrow morning>","note":"<one-sentence friendly summary for the user from ARIA>"}
+Output ONLY the JSON, no markdown, no prose. Match the language of the input for title/description.`;
+
+    try {
+      const text = await window.claude.complete({
+        messages: [
+          { role: 'user', content: `${sys}\n\nUser prompt: ${prompt}` }
+        ]
+      });
+      const json = JSON.parse(text.match(/\{[\s\S]*\}/)[0]);
+      setAriaResult(json);
+      addLog('aria', `drafted: "${json.title}" · ${json.type} · Rp ${json.price.toLocaleString('id-ID')}`);
+      setApiStatus('live');
+    } catch (e) {
+      // Fallback: simulated
+      const fallback = {
+        type: 'errand', title: prompt.slice(0, 50),
+        description: 'ARIA draft (simulated — API unavailable). Details based on your prompt.',
+        price: 35000, distance: 1.2, location: 'Kebayoran Baru', time: 'ASAP',
+        note: 'Here\'s a draft based on your request.',
+      };
+      setAriaResult(fallback);
+      addLog('aria', `offline mode · drafted fallback task`);
+      setApiStatus('sim');
+    }
+    setPosterBusy(false);
+  };
+
+  // NOVA: scan the feed and pick the best task using Claude
+  const runNova = async () => {
+    setDoerBusy(true);
+    addLog('nova', `scanning ${TASKS.length} nearby tasks`);
+    addLog('nova', 'filters: ≤ 2km · ≥ Rp 20k · errand/delivery only');
+
+    const feed = TASKS.map(t => ({
+      id: t.id, title: t.title, type: t.type, price: t.price,
+      distance: t.distance, urgent: !!t.urgent,
+    }));
+
+    const sys = `You are NOVA, an AI doer agent for DUIT task marketplace in Jakarta. User profile: prefers errand/delivery, within 2km, min Rp 20000, likes urgent tasks. Given the task list, return JSON:
+{"pick_id":"<id>","reason":"<~80 char why this task is best>","offer":<integer IDR, slightly above listed price if good>,"skipped":[{"id":"<id>","reason":"<short reason>"}]}
+Output ONLY JSON.`;
+
+    try {
+      const text = await window.claude.complete({
+        messages: [{ role: 'user', content: `${sys}\n\nTasks:\n${JSON.stringify(feed, null, 2)}` }]
+      });
+      const json = JSON.parse(text.match(/\{[\s\S]*\}/)[0]);
+      const pick = TASKS.find(t => t.id === json.pick_id) || TASKS[0];
+      (json.skipped || []).slice(0, 2).forEach(s => {
+        const sk = TASKS.find(t => t.id === s.id);
+        if (sk) addLog('nova', `skipped "${sk.title.slice(0, 40)}" — ${s.reason}`);
+      });
+      addLog('nova', `✓ PICKED: "${pick.title}" — ${json.reason}`);
+      addLog('nova', `sent offer: Rp ${(json.offer || pick.price).toLocaleString('id-ID')}`);
+      setApiStatus('live');
+
+      // Simulate acceptance after a beat
+      setTimeout(() => {
+        addLog('nova', 'offer accepted! routing to task…');
+        setOpenTaskId(pick.id);
+        setScreen('tracker');
+        setTrackerStage('accepted');
+        setDoerBusy(false);
+      }, 1400);
+    } catch (e) {
+      addLog('nova', `offline mode · using rules engine`);
+      const pick = TASKS.filter(t => t.distance <= 2 && t.price >= 20000 && ['errand','delivery'].includes(t.type))
+        .sort((a, b) => (b.urgent - a.urgent) || (b.price - a.price))[0] || TASKS[0];
+      addLog('nova', `✓ PICKED: "${pick.title}"`);
+      setApiStatus('sim');
+      setTimeout(() => {
+        setOpenTaskId(pick.id);
+        setScreen('tracker');
+        setTrackerStage('accepted');
+        setDoerBusy(false);
+      }, 1200);
+    }
+  };
+
+  // ARIA compose handler — handles draft, redo, and post
+  const handleAriaSubmit = (prompt, redo, action) => {
+    if (action === 'post') {
+      addLog('aria', `task posted to marketplace`);
+      setAriaResult(null);
+      setAriaPrompt('');
+      setScreen('posted');
+      return;
+    }
+    runAria(prompt);
+  };
+
+  const openAria = () => {
+    setAriaResult(null);
+    setAriaPrompt('');
+    setScreen('aria');
+  };
+
+  React.useEffect(() => {
+    document.documentElement.style.setProperty('--lime', tweaks.accentColor);
+  }, [tweaks.accentColor]);
+
+  React.useEffect(() => { localStorage.setItem('duit-screen', screen); }, [screen]);
+  React.useEffect(() => { localStorage.setItem('duit-tab', tab); }, [tab]);
+
+  // Edit mode wiring
+  React.useEffect(() => {
+    const h = (e) => {
+      if (e.data?.type === '__activate_edit_mode') setEditMode(true);
+      if (e.data?.type === '__deactivate_edit_mode') setEditMode(false);
+    };
+    window.addEventListener('message', h);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', h);
+  }, []);
+
+  const update = (patch) => {
+    const next = { ...tweaks, ...patch };
+    setTweaks(next);
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: patch }, '*');
+  };
+
+  const advanceTracker = (kind) => {
+    const order = ['posted', 'accepted', 'progress', 'completed', 'paid'];
+    if (kind === 'next') {
+      const idx = order.indexOf(trackerStage);
+      if (idx === 2) { setScreen('payment'); return; }
+      setTrackerStage(order[Math.min(idx + 1, order.length - 1)]);
+    } else if (kind === 'rate') {
+      setScreen('rating');
+    }
+  };
+
+  const handleTab = (id) => {
+    if (id === 'create') { setScreen('create'); return; }
+    setTab(id);
+    setScreen('home');
+  };
+
+  // Current phone content
+  const renderPhone = (povOverride) => {
+    const activePov = povOverride || tweaks.pov;
+
+    if (screen === 'detail') {
+      return (
+        <TaskDetail
+          taskId={openTaskId}
+          onBack={() => setScreen('home')}
+          onAccept={() => { setScreen('tracker'); setTrackerStage('accepted'); }}
+          pov={activePov}
+        />
+      );
+    }
+    if (screen === 'create') {
+      return (
+        <CreateFlow
+          onClose={() => setScreen('home')}
+          onPost={() => setScreen('posted')}
+        />
+      );
+    }
+    if (screen === 'posted') {
+      return <PostedSuccess onDone={() => { setScreen('tracker'); setTrackerStage('posted'); }} />;
+    }
+    if (screen === 'tracker') {
+      return (
+        <StatusTracker
+          stage={trackerStage}
+          onAdvance={advanceTracker}
+          onConfirmPayment={() => setScreen('payment')}
+          onBack={() => setScreen('home')}
+          pov={activePov}
+        />
+      );
+    }
+    if (screen === 'payment') {
+      return (
+        <PaymentConfirm
+          onBack={() => setScreen('tracker')}
+          onConfirm={() => { setTrackerStage('paid'); setScreen('rating'); }}
+        />
+      );
+    }
+    if (screen === 'rating') {
+      return (
+        <RatingScreen
+          onSubmit={() => { setScreen('home'); setTab('home'); }}
+          onBack={() => setScreen('tracker')}
+        />
+      );
+    }
+    if (screen === 'messages') {
+      return <MessagesPage onBack={() => { setScreen('home'); setTab('activity'); }} />;
+    }
+    if (screen === 'verify') {
+      return <VerificationPage onBack={() => { setScreen('home'); setTab('profile'); }} onDone={() => { setScreen('home'); setTab('profile'); }} />;
+    }
+    if (screen === 'aihub') {
+      return (
+        <AIHub
+          onBack={() => setScreen('home')}
+          agentLogs={agentLogs}
+          onRunPoster={openAria}
+          onRunDoer={runNova}
+          posterBusy={posterBusy}
+          doerBusy={doerBusy}
+          doerAutopilot={doerAutopilot}
+          onToggleAutopilot={() => {
+            const nx = !doerAutopilot;
+            setDoerAutopilot(nx);
+            addLog('nova', nx ? 'autopilot ON · will auto-accept matching tasks' : 'autopilot OFF');
+          }}
+          apiStatus={apiStatus}
+        />
+      );
+    }
+    if (screen === 'aria') {
+      return (
+        <AriaComposer
+          onClose={() => setScreen('aihub')}
+          onSubmit={handleAriaSubmit}
+          draft={ariaPrompt}
+          busy={posterBusy}
+          result={ariaResult}
+        />
+      );
+    }
+
+    // Home root: depends on tab
+    return (
+      <>
+        {tab === 'home' && (
+          <HomeFeed
+            pov={activePov}
+            onTogglePov={() => update({ pov: activePov === 'poster' ? 'doer' : 'poster' })}
+            onOpenTask={(id) => { setOpenTaskId(id); setScreen('detail'); }}
+            density={tweaks.density}
+            onOpenAI={() => setScreen('aihub')}
+          />
+        )}
+        {tab === 'tasks' && (
+          <TasksPage
+            pov={activePov}
+            onOpenTask={(id) => { setOpenTaskId(id); setScreen('detail'); }}
+            onOpenTracker={() => { setScreen('tracker'); setTrackerStage('accepted'); }}
+          />
+        )}
+        {tab === 'activity' && <ActivityPage onOpenMessages={() => setScreen('messages')} />}
+        {tab === 'profile' && <ProfilePage onOpenVerify={() => setScreen('verify')} />}
+      </>
+    );
+  };
+
+  const phoneFrame = (content, label, povOverride) => (
+    <div data-screen-label={label} style={{ position: 'relative' }}>
+      <IOSDevice width={390} height={844} dark={false}>
+        <div style={{ position: 'relative', height: '100%', background: '#FAF8F3', overflow: 'hidden' }}>
+          <div className="phone-scroll" style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', color: '#0E0E10' }}>
+            {content}
+          </div>
+          {/* Tabs only when on home root */}
+          {['home'].includes(screen) && (
+            <BottomTabs active={tab} onChange={handleTab} pov={povOverride || tweaks.pov} />
+          )}
+        </div>
+      </IOSDevice>
+      {povOverride && (
+        <div style={{
+          position: 'absolute', top: -28, left: 24,
+          fontFamily: 'JetBrains Mono, monospace', fontSize: 11,
+          color: '#D4FF3F', textTransform: 'uppercase', letterSpacing: '0.08em',
+        }}>
+          <span style={{ opacity: 0.5 }}>→</span> {povOverride} view
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div style={{
+      minHeight: '100vh', background: '#1a1a1d',
+      padding: '40px 20px 60px', color: '#fff',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 30,
+    }}>
+      {/* Header */}
+      <div style={{ textAlign: 'center', maxWidth: 700 }}>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 14,
+          padding: '5px 12px', borderRadius: 999,
+          background: 'rgba(212,255,63,0.1)', border: '1px solid rgba(212,255,63,0.2)',
+          fontFamily: 'JetBrains Mono, monospace', fontSize: 11,
+          color: '#D4FF3F', letterSpacing: '0.04em',
+        }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#D4FF3F' }} />
+          HYPER-LOCAL TASK MARKETPLACE · PROTOTYPE
+        </div>
+        <h1 className="display" style={{
+          fontSize: 56, fontWeight: 700, letterSpacing: '-0.035em', lineHeight: 0.95,
+          margin: '0 0 14px', color: '#fff',
+        }}>
+          DUIT<span style={{ color: '#D4FF3F' }}>!</span>
+        </h1>
+        <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)', maxWidth: 520, margin: '0 auto', lineHeight: 1.45 }}>
+          Post a task in 30 seconds. Accept in one tap. Payment held safely until the job's done.
+          Navigate freely — every screen is live.
+        </p>
+      </div>
+
+      {/* Phones */}
+      <div style={{ display: 'flex', gap: 60, flexWrap: 'wrap', justifyContent: 'center', alignItems: 'flex-start' }}>
+        {phoneFrame(renderPhone(), '01 Main', null)}
+      </div>
+
+      {/* Quickscreen hop */}
+      <QuickJumpBar current={screen} tab={tab}
+        onJump={(s) => {
+          if (s.tab) setTab(s.tab);
+          if (s.screen) setScreen(s.screen);
+          if (s.stage) setTrackerStage(s.stage);
+        }} />
+
+      {editMode && <TweaksPanel tweaks={tweaks} onChange={update} />}
+    </div>
+  );
+}
+
+function QuickJumpBar({ current, tab, onJump }) {
+  const jumps = [
+    { k: 'Home feed',      fn: { screen: 'home', tab: 'home' } },
+    { k: 'Task detail',    fn: { screen: 'detail' } },
+    { k: 'Create (6-step)',fn: { screen: 'create' } },
+    { k: 'Posted ✓',       fn: { screen: 'posted' } },
+    { k: 'Status',         fn: { screen: 'tracker', stage: 'accepted' } },
+    { k: 'Task done',      fn: { screen: 'tracker', stage: 'completed' } },
+    { k: 'Payment',        fn: { screen: 'payment' } },
+    { k: 'Rating',         fn: { screen: 'rating' } },
+    { k: 'My Tasks',       fn: { screen: 'home', tab: 'tasks' } },
+    { k: 'Activity',       fn: { screen: 'home', tab: 'activity' } },
+    { k: 'Messages',       fn: { screen: 'messages' } },
+    { k: 'Profile',        fn: { screen: 'home', tab: 'profile' } },
+    { k: 'Verification',   fn: { screen: 'verify' } },
+    { k: '✦ AI Agents',     fn: { screen: 'aihub' } },
+    { k: '✦ ARIA composer', fn: { screen: 'aria' } },
+  ];
+  return (
+    <div style={{
+      maxWidth: 720, width: '100%',
+      background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: 20, padding: 16,
+    }}>
+      <div style={{
+        fontFamily: 'JetBrains Mono, monospace', fontSize: 10,
+        color: 'rgba(255,255,255,0.5)', letterSpacing: '0.1em',
+        textTransform: 'uppercase', marginBottom: 10,
+      }}>
+        ↪ Jump to screen
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {jumps.map(j => {
+          const active =
+            (j.fn.screen === current) &&
+            (!j.fn.tab || j.fn.tab === tab);
+          return (
+            <button key={j.k} onClick={() => onJump(j.fn)}
+              style={{
+                padding: '6px 12px', borderRadius: 999,
+                background: active ? '#D4FF3F' : 'rgba(255,255,255,0.06)',
+                color: active ? '#0E0E10' : '#fff',
+                border: '1px solid ' + (active ? 'transparent' : 'rgba(255,255,255,0.1)'),
+                fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}>{j.k}</button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TweaksPanel({ tweaks, onChange }) {
+  const colors = ['#D4FF3F', '#FF6B35', '#00D9A3', '#FFB800', '#7B5CFF', '#FF4D8F'];
+  return (
+    <div style={{
+      position: 'fixed', bottom: 20, right: 20, width: 280,
+      background: '#0E0E10', color: '#fff', borderRadius: 20, padding: 18,
+      border: '1px solid rgba(255,255,255,0.1)', zIndex: 999,
+      boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+    }}>
+      <div className="display" style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>Tweaks</div>
+
+      <div style={{ marginBottom: 14 }}>
+        <Label>Accent color</Label>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {colors.map(c => (
+            <button key={c} onClick={() => onChange({ accentColor: c })} style={{
+              width: 30, height: 30, borderRadius: 8, background: c, cursor: 'pointer',
+              border: tweaks.accentColor === c ? '2px solid #fff' : '2px solid transparent',
+            }} />
+          ))}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <Label>Default POV</Label>
+        <ToggleGroup value={tweaks.pov} onChange={(v) => onChange({ pov: v })} options={[
+          { id: 'poster', label: 'Poster' }, { id: 'doer', label: 'Doer' },
+        ]} />
+      </div>
+
+      <div>
+        <Label>Card density</Label>
+        <ToggleGroup value={tweaks.density} onChange={(v) => onChange({ density: v })} options={[
+          { id: 'balanced', label: 'Balanced' }, { id: 'dense', label: 'Dense' },
+        ]} />
+      </div>
+    </div>
+  );
+}
+function Label({ children }) {
+  return <div style={{
+    fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.5)', marginBottom: 6, fontWeight: 600,
+  }}>{children}</div>;
+}
+function ToggleGroup({ value, onChange, options }) {
+  return (
+    <div style={{ display: 'flex', gap: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 10, padding: 3 }}>
+      {options.map(o => (
+        <button key={o.id} onClick={() => onChange(o.id)} style={{
+          flex: 1, padding: '6px 8px', borderRadius: 8,
+          background: value === o.id ? '#D4FF3F' : 'transparent',
+          color: value === o.id ? '#0E0E10' : '#fff',
+          fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
+        }}>{o.label}</button>
+      ))}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<DuitApp />);
+</script>
+</body>
+</html>
