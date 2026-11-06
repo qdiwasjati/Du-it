@@ -144,7 +144,7 @@ Penulisan ledger lewat Edge Function (secret key) atau fungsi di schema yang tid
 ## 10. Login Google (D1)
 
 - Native sign-in dengan `@react-native-google-signin/google-signin` atau `react-native-nitro-google-signin`; **tidak jalan di Expo Go** (S22a, S22b).
-- Ke Supabase lewat `signInWithIdToken` dengan **nonce** (SHA-256); client ID dipisah koma dan **web client ID pertama** (S15a).
+- Ke Supabase lewat `signInWithIdToken`; client ID dipisah koma dan **web client ID pertama** (S15a). **Koreksi:** varian gratis `@react-native-google-signin/google-signin` (v17) tidak mendukung nonce kustom (fitur varian berbayar), jadi token dikirim tanpa nonce sesuai contoh resmi Supabase; jangan mengaktifkan "Skip nonce checks".
 - SHA-1 Android harus dari **App signing key** di Play Console, bukan upload key, agar jalan di build EAS/Play (S22a, S37b).
 - Quickstart Supabase untuk Expo tidak membahas library native tersebut (S15b), jadi pakai kombinasi dokumentasi Expo + Supabase.
 - Pemilik produk perlu membuat proyek dan OAuth client di Google Cloud; langkahnya dipandu saat implementasi.
@@ -231,7 +231,8 @@ docs/
 - Advisor: 4 peringatan "SECURITY DEFINER dapat dijalankan user login" yang **disengaja** (RPC adalah API publiknya; semuanya memeriksa `auth.uid()` dan dicabut dari `anon`); 1 INFO indeks FK `task_events_actor_id_idx` belum terpakai karena tabel masih kosong.
 - Belum teruji: balapan "terima serentak" dari dua sesi (tes berjalan berurutan; atomisitas bertumpu pada UPDATE bersyarat dan advisory lock per user).
 - Tabel `driver_locations` prototipe **tidak ada** di project baru; fitur driver di tab Peta menampilkan pesan error ringan sampai digantikan `task_locations`.
-- Belum: login Google, RPC status lanjutan (berangkat, tiba, kerja, selesai), foto, pembayaran, rating.
+- **Login Google di app (2026-11-06):** `src/lib/auth/google.ts`, `src/features/auth/*` (provider, gate, layar login), tab Akun dengan tombol keluar; plugin `@react-native-google-signin/google-signin` di `app.json`; typecheck, lint, prebuild Android, dan bundle lolos. **Belum dijalankan di perangkat:** butuh Client ID web di `.env`, provider Google aktif di Supabase, dan build dev client baru (modul native baru); login Android juga butuh Client ID Android (package `com.duitapp.mobile` + SHA-1 keystore EAS). iOS butuh `iosUrlScheme` di plugin.
+- Belum: RPC status lanjutan (berangkat, tiba, kerja, selesai), foto, pembayaran, rating.
 
 Kode peta yang ada di `mobile/` (`driver_locations`, mode driver, anonymous sign-in) adalah prototipe: **tabel `driver_locations` akan digantikan `task_locations`.** Layar dan service peta (`lib/maps`) tetap dipakai.
 

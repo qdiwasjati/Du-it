@@ -5,5 +5,6 @@ declare namespace NodeJS {
     readonly EXPO_PUBLIC_ROUTING_URL?: string;
     readonly EXPO_PUBLIC_SUPABASE_URL?: string;
     readonly EXPO_PUBLIC_SUPABASE_ANON_KEY?: string;
+    readonly EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?: string;
   }
 }

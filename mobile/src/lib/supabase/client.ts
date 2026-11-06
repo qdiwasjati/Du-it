@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { AppState } from 'react-native';
 
+import type { Database } from './database.types';
+
 export class SupabaseNotConfiguredError extends Error {
   constructor() {
     super('Supabase belum dikonfigurasi. Isi EXPO_PUBLIC_SUPABASE_URL dan EXPO_PUBLIC_SUPABASE_ANON_KEY di .env lalu restart app.');
@@ -10,6 +12,10 @@ export class SupabaseNotConfiguredError extends Error {
 }
 
 let client: SupabaseClient | null = null;
+
+export function isSupabaseConfigured(): boolean {
+  return Boolean(process.env.EXPO_PUBLIC_SUPABASE_URL && process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY);
+}
 
 /** Dibuat lazily supaya app tidak crash saat import bila .env belum diisi. */
 export function getSupabase(): SupabaseClient {
@@ -38,8 +44,13 @@ export function getSupabase(): SupabaseClient {
   return client;
 }
 
+/** Klien yang sama dengan getSupabase(), bertipe skema marketplace. Dipakai kode baru. */
+export function getDb(): SupabaseClient<Database> {
+  return getSupabase() as unknown as SupabaseClient<Database>;
+}
+
 /**
- * Pastikan ada sesi. MVP belum punya layar login, jadi memakai anonymous sign-in
+ * (Prototipe peta) Pastikan ada sesi. MVP belum punya layar login, jadi memakai anonymous sign-in
  * (harus diaktifkan di Supabase: Authentication -> Providers -> Anonymous).
  * Setiap perangkat mendapat user_id sendiri sehingga RLS `driver_id = auth.uid()` tetap berlaku.
  */
