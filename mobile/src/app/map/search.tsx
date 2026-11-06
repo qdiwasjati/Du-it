@@ -74,13 +74,13 @@ export default function SearchSheet() {
 
       {state.status === 'idle' ? (
         <ThemedText type="small" themeColor="textSecondary">
-          Ketik minimal 2 huruf, mis. "Monas Jakarta".
+          Ketik minimal 2 huruf, mis. &quot;Monas Jakarta&quot;.
         </ThemedText>
       ) : null}
 
       {state.status === 'done' && state.results.length === 0 ? (
         <ThemedText type="small" themeColor="textSecondary">
-          Tidak ada hasil untuk "{query.trim()}". Data peta hanya mencakup wilayah yang dimuat server.
+          Tidak ada hasil untuk &quot;{query.trim()}&quot;. Data peta hanya mencakup wilayah yang dimuat server.
         </ThemedText>
       ) : null}
 

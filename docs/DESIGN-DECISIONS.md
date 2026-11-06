@@ -188,6 +188,11 @@ Daftar tahap 0:
 - Edge Function: JWT diverifikasi kecuali webhook; secrets lewat CLI/dashboard.
 - Expo: `testID` pada elemen penting agar tes Maestro stabil (S39).
 
+**Status tahap 0 (2026-11-06):**
+- Selesai: `.gitignore` root; CI (`.github/workflows/ci.yml`: `npm ci`, typecheck, lint); `tsc` bersih; ESLint terpasang (0 error, 6 peringatan `react-hooks/set-state-in-effect` yang dicatat sebagai utang teknis); Dependabot (`.github/dependabot.yml`, paket terikat Expo SDK tidak di-bump major/minor); hook pre-commit ringan di `.githooks/` (uji lokal lulus; aktifkan dengan `git config core.hooksPath .githooks`).
+- Penyimpangan dari rencana: **tanpa Husky** (hook polos di `.githooks/`, tanpa dependensi tambahan); **CodeQL dan secret scanning memakai pengaturan GitHub**, bukan file workflow. Versi `actions/checkout@v6` dan `actions/setup-node@v6` berasal dari sumber sekunder dan belum diverifikasi ke halaman rilis resmi.
+- Belum: tes pgTAP RLS (menunggu project Supabase DUIT), OSV-Scanner, evaluasi pengganti gitleaks.
+
 ## 14. Struktur kode (usulan)
 
 ```

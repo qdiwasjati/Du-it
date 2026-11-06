@@ -1,0 +1,23 @@
+#!/bin/sh
+# Pencegah rahasia bocor ke repo publik. Aktifkan sekali: git config core.hooksPath .githooks
+# Pola sengaja sempit (hampir tanpa false positive). Untuk cakupan penuh pasang juga gitleaks.
+
+fail=0
+
+staged_env=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(^|/)\.env(\.|$)' | grep -vE '\.env\.example$')
+if [ -n "$staged_env" ]; then
+  echo "DIBLOKIR: file env ikut ter-stage:"; echo "$staged_env"; fail=1
+fi
+
+patterns='-----BEGIN [A-Z ]*PRIVATE KEY-----|sk-or-v1-[0-9a-f]{20,}|(SB-)?Mid-server-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{35}|sb_secret_[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}'
+hits=$(git diff --cached -U0 --diff-filter=ACM | grep -E '^\+[^+]' | grep -E -e "$patterns")
+if [ -n "$hits" ]; then
+  echo "DIBLOKIR: ada yang mirip kunci/rahasia pada perubahan yang akan di-commit."
+  echo "(baris tidak ditampilkan agar rahasia tidak tercetak ulang)"; fail=1
+fi
+
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --pre-commit --staged --redact >/dev/null 2>&1 || { echo "DIBLOKIR: gitleaks menemukan rahasia."; fail=1; }
+fi
+
+[ "$fail" -eq 0 ] || { echo "Commit dibatalkan. Hapus rahasianya, rotasi kuncinya bila sudah sempat ter-push."; exit 1; }
