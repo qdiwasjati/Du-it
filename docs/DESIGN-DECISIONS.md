@@ -226,6 +226,13 @@ docs/
 | 6 | ARIA/NOVA via Edge Function | kunci hanya di server, batas per user |
 | 7 | Pencairan saldo (Iris) | **hanya setelah gerbang legal (bagian 12)** |
 
+**Status tahap 1, lapisan database (2026-11-06):** project Supabase `duit` (ap-southeast-1) dibuat dan migrasi `mobile/supabase/migrations/20261106000000_marketplace_core.sql` diterapkan: `profiles` (+ trigger dari `auth.users`), `tasks` (PostGIS), `task_events` (append-only), RLS, dan RPC `create_task`, `nearby_tasks`, `accept_task`, `cancel_task`. Tes SQL `mobile/supabase/tests/marketplace_core.sql`: 34 pemeriksaan lulus (dengan positive control), rollback otomatis.
+- Keputusan implementasi: lokasi tugas dikaburkan (±100 m) dan alamat disembunyikan sampai tugas diterima; maks 5 tugas terbuka per poster dan 2 tugas aktif per doer; poster hanya bisa membatalkan sebelum diterima (aturan batal setelahnya belum diputuskan); `payment_mode` default `offline` (soft launch).
+- Advisor: 4 peringatan "SECURITY DEFINER dapat dijalankan user login" yang **disengaja** (RPC adalah API publiknya; semuanya memeriksa `auth.uid()` dan dicabut dari `anon`); 1 INFO indeks FK `task_events_actor_id_idx` belum terpakai karena tabel masih kosong.
+- Belum teruji: balapan "terima serentak" dari dua sesi (tes berjalan berurutan; atomisitas bertumpu pada UPDATE bersyarat dan advisory lock per user).
+- Tabel `driver_locations` prototipe **tidak ada** di project baru; fitur driver di tab Peta menampilkan pesan error ringan sampai digantikan `task_locations`.
+- Belum: login Google, RPC status lanjutan (berangkat, tiba, kerja, selesai), foto, pembayaran, rating.
+
 Kode peta yang ada di `mobile/` (`driver_locations`, mode driver, anonymous sign-in) adalah prototipe: **tabel `driver_locations` akan digantikan `task_locations`.** Layar dan service peta (`lib/maps`) tetap dipakai.
 
 ## 17. Risiko dan pertanyaan terbuka
