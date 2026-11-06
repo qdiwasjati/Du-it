@@ -1,0 +1,16 @@
+# dependencies & build output
+node_modules/
+dist/
+.expo/
+
+# local env / secrets (hanya .env.example yang boleh masuk)
+.env
+.env.*
+!.env.example
+
+# bukti riset pihak ketiga: jangan masuk repo publik
+*.zip
+
+# OS / editor
+.DS_Store
+*.log
